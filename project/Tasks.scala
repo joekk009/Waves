@@ -94,26 +94,26 @@ object Tasks {
         )
       )
 
-    def readV3Data(): (String, String) = {
-      val ver = "3"
-
+    def readCategorizedData(version: String): (String, String) = {
       val funcs = for {
-        path <- Files.list(Paths.get(s"$baseLangDir/doc/v3/funcs")).iterator.asScala
+        path <- Files.list(Paths.get(s"$baseLangDir/doc/v$version/funcs")).iterator.asScala
         json = JsonValue.readHjson(Files.newBufferedReader(path)).asObject().toString
         funcs <- mapper.readValue[Map[String, List[FuncSourceData]]](json).head._2
         category = path.getName(path.getNameCount - 1).toString.split('.').head
       } yield (funcs, category)
 
-      val funcsStr = buildCategorizedFuncsStr(funcs.toSeq, ver)
+      val funcsStr = buildCategorizedFuncsStr(funcs.toSeq, version)
 
-      val vars    = mapper.readValue[Map[String, List[VarSourceData]]](new File(s"$baseLangDir/doc/v3/vars.json")).head._2
-      val varsStr = buildVarsStr(vars, ver)
+      val varsPath = new File(s"$baseLangDir/doc/v$version/vars.json")
+      val vars     = mapper.readValue[Map[String, List[VarSourceData]]](varsPath).head._2
+      val varsStr  = buildVarsStr(vars, version)
 
       (varsStr, funcsStr)
     }
 
-    val (vars, funcs)     = readV1V2Data()
-    val (varsV3, funcsV3) = readV3Data()
+    val (vars, funcs) = readV1V2Data()
+
+    Seq("3", "4").map(readCategorizedData)
 
     val sourceStr =
       s"""
