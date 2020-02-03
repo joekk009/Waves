@@ -5,12 +5,12 @@ import com.wavesplatform.lang.v1.FunctionHeader
 import com.wavesplatform.lang.v1.task.TaskM
 import shapeless.{Lens, lens}
 
-private[v3] case class EstimatorContext(
+private[lang] case class EstimatorContext(
   funcs:    Map[FunctionHeader, Long],
   usedRefs: Set[String] = Set.empty
 )
 
-private[v3] object EstimatorContext {
+private[lang] object EstimatorContext {
   type EvalM[A] = TaskM[EstimatorContext, ExecutionError, A]
 
   object Lenses {

@@ -30,7 +30,7 @@ class EvaluatorV1[F[_] : Monad, C[_[_]]](implicit ev: Monad[EvalF[F, ?]]) {
   private val lenses = new Lenses[F, C]
   import lenses._
 
-  private def evalLetBlock(let: LET, inner: EXPR): EvalM[F, C, (EvaluationContext[C, F], EVALUATED)] =
+  private[lang] def evalLetBlock(let: LET, inner: EXPR): EvalM[F, C, (EvaluationContext[C, F], EVALUATED)] =
     for {
       ctx <- get[F, LoggedEvaluationContext[C, F], ExecutionError]
       blockEvaluation = evalExpr(let.value)
@@ -41,7 +41,7 @@ class EvaluatorV1[F[_] : Monad, C[_[_]]](implicit ev: Monad[EvalF[F, ?]]) {
       }
     } yield result
 
-  private def evalFuncBlock(func: FUNC, inner: EXPR): EvalM[F, C, (EvaluationContext[C, F], EVALUATED)] = {
+  private[lang] def evalFuncBlock(func: FUNC, inner: EXPR): EvalM[F, C, (EvaluationContext[C, F], EVALUATED)] = {
     val funcHeader = FunctionHeader.User(func.name)
     val function = UserFunction(func.name, 0, null, func.args.map(n => (n, null)): _*)(func.body)
         .asInstanceOf[UserFunction[C]]
@@ -51,7 +51,7 @@ class EvaluatorV1[F[_] : Monad, C[_[_]]](implicit ev: Monad[EvalF[F, ?]]) {
     }
   }
 
-  private def evalRef(key: String): EvalM[F, C, (EvaluationContext[C, F], EVALUATED)] =
+  private[lang] def evalRef(key: String): EvalM[F, C, (EvaluationContext[C, F], EVALUATED)] =
     for {
       ctx <- get[F, LoggedEvaluationContext[C, F], ExecutionError]
       r   <- lets.get(ctx).get(key) match {
@@ -60,14 +60,14 @@ class EvaluatorV1[F[_] : Monad, C[_[_]]](implicit ev: Monad[EvalF[F, ?]]) {
       }
     } yield (ctx.ec, r)
 
-  private def evalIF(cond: EXPR, ifTrue: EXPR, ifFalse: EXPR): EvalM[F, C, (EvaluationContext[C, F], EVALUATED)] =
+  private[lang] def evalIF(cond: EXPR, ifTrue: EXPR, ifFalse: EXPR): EvalM[F, C, (EvaluationContext[C, F], EVALUATED)] =
     evalExpr(cond) flatMap {
       case TRUE  => evalExprWithCtx(ifTrue)
       case FALSE => evalExprWithCtx(ifFalse)
       case _     => ???
     }
 
-  private def evalGetter(expr: EXPR, field: String): EvalM[F, C, (EvaluationContext[C, F], EVALUATED)] = {
+  private[lang] def evalGetter(expr: EXPR, field: String): EvalM[F, C, (EvaluationContext[C, F], EVALUATED)] = {
     Monad[EvalM[F, C, ?]].flatMap(evalExprWithCtx(expr)) { case (ctx, exprResult) =>
       val fields = exprResult.asInstanceOf[CaseObj].fields
       fields.get(field) match {
@@ -77,7 +77,7 @@ class EvaluatorV1[F[_] : Monad, C[_[_]]](implicit ev: Monad[EvalF[F, ?]]) {
     }
   }
 
-  private def evalFunctionCall(header: FunctionHeader, args: List[EXPR]): EvalM[F, C, (EvaluationContext[C, F], EVALUATED)] =
+  private[lang] def evalFunctionCall(header: FunctionHeader, args: List[EXPR]): EvalM[F, C, (EvaluationContext[C, F], EVALUATED)] =
     for {
       ctx <- get[F, LoggedEvaluationContext[C, F], ExecutionError]
       result <- funcs
@@ -125,11 +125,14 @@ class EvaluatorV1[F[_] : Monad, C[_[_]]](implicit ev: Monad[EvalF[F, ?]]) {
           case f: FUNC => evalFuncBlock(f, inner)
         }
       case REF(str)                    => evalRef(str)
-      case c: EVALUATED                => get[F, LoggedEvaluationContext[C, F], ExecutionError].map(ctx => (ctx.ec, c))
+      case c: EVALUATED                => evaluated(c)
       case IF(cond, t1, t2)            => evalIF(cond, t1, t2)
       case GETTER(expr, field)         => evalGetter(expr, field)
       case FUNCTION_CALL(header, args) => evalFunctionCall(header, args)
     }
+
+  private[lang] def evaluated(v: EVALUATED): EvalM[F, C, (EvaluationContext[C, F], EVALUATED)] =
+    get[F, LoggedEvaluationContext[C, F], ExecutionError].map(ctx => (ctx.ec, v))
 
   def evalExpr(t: EXPR): EvalM[F, C, EVALUATED] =
     evalExprWithCtx(t).map(_._2)

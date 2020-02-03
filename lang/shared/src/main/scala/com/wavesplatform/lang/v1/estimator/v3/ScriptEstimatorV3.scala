@@ -30,7 +30,7 @@ object ScriptEstimatorV3 extends ScriptEstimator {
         case BLOCK(let: LET, inner)      => evalLetBlock(let, inner)
         case BLOCK(f: FUNC, inner)       => evalFuncBlock(f, inner)
         case REF(str)                    => markRef(str)
-        case _: EVALUATED                => const(1L)
+        case _: EVALUATED                => evaluated
         case IF(cond, t1, t2)            => evalIF(cond, t1, t2)
         case GETTER(expr, _)             => evalGetter(expr)
         case FUNCTION_CALL(header, args) => evalFuncCall(header, args)
@@ -44,7 +44,10 @@ object ScriptEstimatorV3 extends ScriptEstimator {
       _        <- update(funcs.set(_)(startCtx.funcs))
     } yield cost
 
-  private def evalLetBlock(let: LET, inner: EXPR): EvalM[Long] =
+  private[lang] def evaluated: EvalM[Long] =
+    const(1L)
+
+  private[lang] def evalLetBlock(let: LET, inner: EXPR): EvalM[Long] =
     for {
       startCtx <- get[Id, EstimatorContext, ExecutionError]
       overlap   = startCtx.usedRefs.contains(let.name)
@@ -56,27 +59,27 @@ object ScriptEstimatorV3 extends ScriptEstimator {
       _        <- update(usedRefs.modify(_)(r => if (overlap) r + let.name else r - let.name))
     } yield nextCost + letCost
 
-  private def evalFuncBlock(func: FUNC, inner: EXPR): EvalM[Long] =
+  private[lang] def evalFuncBlock(func: FUNC, inner: EXPR): EvalM[Long] =
     for {
       funcCost <- evalHoldingFuncs(func.body)
       _        <- update(funcs.modify(_)(_ + (FunctionHeader.User(func.name) -> funcCost)))
       nextCost <- evalExpr(inner)
     } yield nextCost
 
-  private def evalIF(cond: EXPR, ifTrue: EXPR, ifFalse: EXPR): EvalM[Long] =
+  private[lang] def evalIF(cond: EXPR, ifTrue: EXPR, ifFalse: EXPR): EvalM[Long] =
     for {
       cond     <- evalHoldingFuncs(cond)
       right    <- evalHoldingFuncs(ifTrue)
       left     <- evalHoldingFuncs(ifFalse)
     } yield cond + Math.max(right, left) + 1
 
-  private def markRef(key: String): EvalM[Long] =
+  private[lang] def markRef(key: String): EvalM[Long] =
     update(usedRefs.modify(_)(_ + key)).map(_ => 1)
 
-  private def evalGetter(expr: EXPR): EvalM[Long] =
+  private[lang] def evalGetter(expr: EXPR): EvalM[Long] =
     evalExpr(expr).map(_ + 1)
 
-  private def evalFuncCall(header: FunctionHeader, args: List[EXPR]): EvalM[Long] =
+  private[lang] def evalFuncCall(header: FunctionHeader, args: List[EXPR]): EvalM[Long] =
     for {
       ctx      <- get[Id, EstimatorContext, ExecutionError]
       bodyCost <- funcs.get(ctx).get(header).map(const)

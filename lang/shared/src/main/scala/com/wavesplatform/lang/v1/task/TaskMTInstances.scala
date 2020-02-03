@@ -8,7 +8,7 @@ trait TaskMTInstances {
 
   object TF extends TaskMTFunctions
 
-  implicit def monadError[F[_] : Monad, S, E](implicit m: Monad[EvalF[F, ?]]): MonadError[TaskMT[F, S, E, ?], E] =
+  implicit def monadError[F[_] : Monad, S <: AnyRef, E](implicit m: Monad[EvalF[F, ?]]): MonadError[TaskMT[F, S, E, ?], E] =
     new MonadError[TaskMT[F, S, E, ?], E] with StackSafeMonad[TaskMT[F, S, E, ?]] {
       override def pure[A](x: A): TaskMT[F, S, E, A] =
         TF.pure(x)
@@ -23,7 +23,7 @@ trait TaskMTInstances {
         fa.handleErrorWith(f)
     }
 
-  implicit def monadState[F[_]: Monad, S, E](implicit m: Monad[EvalF[F, ?]]): MonadState[TaskMT[F, S, E, ?], S] =
+  implicit def monadState[F[_]: Monad, S <: AnyRef, E](implicit m: Monad[EvalF[F, ?]]): MonadState[TaskMT[F, S, E, ?], S] =
     new MonadState[TaskMT[F, S, E, ?], S] {
       override val monad: Monad[TaskMT[F, S, E, ?]] = monadError[F, S, E]
 

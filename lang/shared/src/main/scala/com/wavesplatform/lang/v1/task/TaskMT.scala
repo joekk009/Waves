@@ -2,9 +2,8 @@ package com.wavesplatform.lang.v1.task
 
 import cats.data.Kleisli
 import cats.implicits._
-import cats.{Eval, Functor, Monad}
+import cats.{Eval, Functor, Monad, ~>}
 import com.wavesplatform.lang.EvalF
-import monix.execution.atomic.{Atomic, AtomicBuilder}
 
 /**
   * Monad with ability to handle errors and deal with stateful computations
@@ -14,10 +13,10 @@ import monix.execution.atomic.{Atomic, AtomicBuilder}
   * @tparam R - Result type
   * @tparam F - Result context type
   */
-trait TaskMT[F[_], S, E, R] {
+trait TaskMT[F[_], S <: AnyRef, E, R] {
   protected[task] val inner: Kleisli[Eval, EvalRef[S], F[Either[E, R]]]
 
-  def run[RS <: Atomic[S]](initial: S)(implicit b: AtomicBuilder[S, RS]): Eval[(S, F[Either[E, R]])] = {
+  def run(initial: S): Eval[(S, F[Either[E, R]])] = {
     val stateRef = EvalRef.of(initial)
 
     for {
@@ -48,18 +47,32 @@ trait TaskMT[F[_], S, E, R] {
         case Left(err) => f(err).inner.run(s)
       }
     }
+
+  def mapK[G[_]](t: TaskMT[F, S, E, R], f: F ~> G): TaskMT[G, S, E, R] =
+    TaskMT.fromKleisli(inner.map(f(_)))
+
+  def transformState[S2 <: AnyRef](f: S2 => S): TaskMT[F, S2, E, R] =
+    TaskMT.fromKleisli(inner.local(s => EvalRef.of(f(s.read.value))))
+
+  def product[S2 <: AnyRef, R2](
+    that: TaskMT[F, S2, E, R2]
+  )(implicit m: Monad[EvalF[F, ?]], m2: Functor[F]): TaskMT[F, (S, S2), E, (R, R2)] =
+    for {
+      r1 <- this.transformState[(S, S2)](_._1)
+      r2 <- that.transformState[(S, S2)](_._2)
+    } yield (r1, r2)
 }
 
 object TaskMT {
-  private[task] def fromKleisli[F[_], S, E, R](in: Kleisli[Eval, EvalRef[S], F[Either[E, R]]]): TaskMT[F, S, E, R] =
+  private[task] def fromKleisli[F[_], S <: AnyRef, E, R](in: Kleisli[Eval, EvalRef[S], F[Either[E, R]]]): TaskMT[F, S, E, R] =
     new TaskMT[F, S, E, R] {
       override protected[task] val inner: Kleisli[Eval, EvalRef[S], F[Either[E, R]]] = in
     }
 
-  def apply[F[_], S, E, R](f: S => Eval[F[Either[E, R]]]): TaskMT[F, S, E, R] =
+  def apply[F[_], S <: AnyRef, E, R](f: S => Eval[F[Either[E, R]]]): TaskMT[F, S, E, R] =
     fromEvalRef(_.read flatMap f)
 
-  private def fromEvalRef[F[_], S, E, R](f: EvalRef[S] => Eval[F[Either[E, R]]]): TaskMT[F, S, E, R] =
+  private def fromEvalRef[F[_], S <: AnyRef, E, R](f: EvalRef[S] => Eval[F[Either[E, R]]]): TaskMT[F, S, E, R] =
     new TaskMT[F, S, E, R] {
       override protected[task] val inner: Kleisli[Eval, EvalRef[S], F[Either[E, R]]] = Kleisli(f)
     }
